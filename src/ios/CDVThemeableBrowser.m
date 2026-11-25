@@ -1650,9 +1650,28 @@
 // change that value.
 //
 - (float) getStatusBarOffset {
-    CGRect statusBarFrame = [[UIApplication sharedApplication] statusBarFrame];
-    float statusBarOffset = IsAtLeastiOSVersion(@"7.0") ? MIN(statusBarFrame.size.width, statusBarFrame.size.height) : 0.0;
-    return statusBarOffset;
+    CGRect statusBarFrame = CGRectZero;
+    if (@available(iOS 13.0, *)) {
+        // In apps that use the UIScene lifecycle, UIApplication.statusBarFrame is always zero, which put the
+        // toolbar under the status bar. Ask the window scene instead. While the browser is not yet in a window
+        // (viewWillAppear), use the scene of the app's view controller that presents it.
+        UIWindowScene* scene = self.view.window.windowScene;
+        if (scene == nil) {
+            scene = self.navigationDelegate.viewController.view.window.windowScene;
+        }
+        if (scene == nil) {
+            for (UIScene* connectedScene in [UIApplication sharedApplication].connectedScenes) {
+                if ([connectedScene isKindOfClass:[UIWindowScene class]]) {
+                    scene = (UIWindowScene*)connectedScene;
+                    break;
+                }
+            }
+        }
+        statusBarFrame = scene.statusBarManager.statusBarFrame;
+    } else {
+        statusBarFrame = [[UIApplication sharedApplication] statusBarFrame];
+    }
+    return MIN(statusBarFrame.size.width, statusBarFrame.size.height);
 }
 
 - (void) rePositionViews {
