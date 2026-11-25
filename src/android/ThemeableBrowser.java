@@ -78,7 +78,6 @@ import org.apache.cordova.CordovaWebView;
 import org.apache.cordova.LOG;
 import org.apache.cordova.PluginManager;
 import org.apache.cordova.PluginResult;
-import org.apache.cordova.Whitelist;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -164,9 +163,6 @@ public class ThemeableBrowser extends CordovaPlugin {
                         Boolean shouldAllowNavigation = null;
                         if (url.startsWith("javascript:")) {
                             shouldAllowNavigation = true;
-                        }
-                        if (shouldAllowNavigation == null) {
-                            shouldAllowNavigation = new Whitelist().isUrlWhiteListed(url);
                         }
                         if (shouldAllowNavigation == null) {
                             try {
@@ -951,6 +947,10 @@ public class ThemeableBrowser extends CordovaPlugin {
                     }
                 }
 
+                // Some sites need third-party cookies for their cookie consent dialog or embedded content to
+                // work; WebView blocks them by default
+                CookieManager.getInstance().setAcceptThirdPartyCookies(inAppWebView, true);
+
                 // Add JS interface
                 class JsObject {
                     @JavascriptInterface
@@ -1504,77 +1504,20 @@ public class ThemeableBrowser extends CordovaPlugin {
          */
         @Override
         public boolean shouldOverrideUrlLoading(WebView webView, String url) {
-            // handle back to application redirect without processing url by webView
-            final Intent customSchemeIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            final PackageManager packageManager = cordova.getActivity().getApplicationContext().getPackageManager();
-            final List<ResolveInfo> resolvedActivities = packageManager.queryIntentActivities(customSchemeIntent, 0);
-
-            String newloc = "";
-            if ((url.startsWith("http:") || url.startsWith("https:") || url.startsWith("file:")) && (!url.startsWith("http://play.google.com") && !url.startsWith("https://play.google.com"))) {
-                newloc = url;
-            } else if (url.startsWith(WebView.SCHEME_TEL)) {
-                try {
-                    Intent intent = new Intent(Intent.ACTION_DIAL);
-                    intent.setData(Uri.parse(url));
-                    cordova.getActivity().startActivity(intent);
-                    return true;
-                } catch (android.content.ActivityNotFoundException e) {
-                    Log.e(LOG_TAG, "Error dialing " + url + ": " + e.toString());
-                }
-            } else if (url.startsWith("geo:") || url.startsWith(WebView.SCHEME_MAILTO) || url.startsWith("market:") || url.startsWith("http://play.google.com") || url.startsWith("https://play.google.com")) {
-                try {
-                    Intent intent = new Intent(Intent.ACTION_VIEW);
-                    intent.setData(Uri.parse(url));
-                    cordova.getActivity().startActivity(intent);
-                    return true;
-                } catch (android.content.ActivityNotFoundException e) {
-                    Log.e(LOG_TAG, "Error with " + url + ": " + e.toString());
-                }
+            // The browser is for finding recipes: only web pages load in it. Links that would leave it (Play
+            // Store pages, and any scheme that is not a web page, such as tel:, mailto:, sms:, geo:, market:,
+            // intent: or another app's) do nothing, and nothing opens outside the app. about:, data: and blob:
+            // stay allowed, pages use them for their own frames and content.
+            String scheme = Uri.parse(url).getScheme();
+            scheme = scheme == null ? "" : scheme.toLowerCase(java.util.Locale.ROOT);
+            boolean isPage = scheme.equals("http") || scheme.equals("https") || scheme.equals("about")
+                    || scheme.equals("data") || scheme.equals("blob");
+            boolean isPlayStore = url.startsWith("http://play.google.com") || url.startsWith("https://play.google.com");
+            if (isPage && !isPlayStore) {
+                return false;
             }
-            // If sms:5551212?body=This is the message
-            else if (url.startsWith("sms:")) {
-                try {
-                    Intent intent = new Intent(Intent.ACTION_VIEW);
-
-                    // Get address
-                    String address = null;
-                    int parmIndex = url.indexOf('?');
-                    if (parmIndex == -1) {
-                        address = url.substring(4);
-                    } else {
-                        address = url.substring(4, parmIndex);
-
-                        // If body, then set sms body
-                        Uri uri = Uri.parse(url);
-                        String query = uri.getQuery();
-                        if (query != null) {
-                            if (query.startsWith("body=")) {
-                                intent.putExtra("sms_body", query.substring(5));
-                            }
-                        }
-                    }
-                    intent.setData(Uri.parse("sms:" + address));
-                    intent.putExtra("address", address);
-                    intent.setType("vnd.android-dir/mms-sms");
-                    cordova.getActivity().startActivity(intent);
-                    return true;
-                } catch (android.content.ActivityNotFoundException e) {
-                    Log.e(LOG_TAG, "Error sending sms " + url + ":" + e.toString());
-                }
-            } else if(resolvedActivities.size() > 0) {
-                Log.e(LOG_TAG, "Starting custom intent: " + url);
-
-                try{
-                    customSchemeIntent.setFlags(Intent.URI_INTENT_SCHEME);
-                    customSchemeIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    cordova.getActivity().startActivity(customSchemeIntent);
-                    closeDialog();
-                } catch (Exception e) {
-                    Log.e(LOG_TAG, "Custom scheme exception: " + e.toString());
-                }
-                return true;
-            }
-            return false;
+            Log.d(LOG_TAG, "Ignoring link: " + url);
+            return true;
         }
 
 

@@ -123,6 +123,18 @@
     [self.themeableBrowserViewController close];
 }
 
+// Links the browser ignores: App Store pages and anything that is not a web page. about:, data: and blob:
+// stay allowed, pages use them for their own frames and content.
+- (BOOL) isIgnoredLink:(NSURL*)url
+{
+    NSString* scheme = url.scheme.lowercaseString;
+    NSArray* pageSchemes = @[@"http", @"https", @"about", @"data", @"blob"];
+    if (scheme != nil && ![pageSchemes containsObject:scheme]) {
+        return YES;
+    }
+    return [self isSystemUrl:url];
+}
+
 - (BOOL) isSystemUrl:(NSURL*)url
 {
   NSDictionary *systemUrls = @{
@@ -623,36 +635,9 @@
     BOOL isTopLevelNavigation = [url isEqual:mainDocumentURL];
     BOOL shouldStart = YES;
     
-    //if is an app store link, let the system handle it, otherwise it fails to load it
-    if ([[ url scheme] isEqualToString:@"itms-appss"] || [[ url scheme] isEqualToString:@"itms-apps"]) {
-        [webView stopLoading];
-        [self openInSystem:url];
-        shouldStart = NO;
-    } else if ([self isSystemUrl:url]) {
-        // Do not allow iTunes store links from ThemeableBrowser as they do not work
-        // instead open them with App Store app or Safari
-        [webView stopLoading];
-        [self openInSystem:url];
-        
-        // only in the case where a redirect link is opened in a freshly started
-        // ThemeableBrowser frame, trigger ThemeableBrowserRedirectExternalOnOpen
-        // event. This event can be handled in the app-side -- for instance, to
-        // close the ThemeableBrowser as the frame will contain a blank page
-        if (
-            originalUrl != nil
-            && [[originalUrl absoluteString] isEqualToString:[initUrl absoluteString]]
-            && _framesOpened == 1
-            ) {
-            NSDictionary *event = @{
-                                    @"type": @"ThemeableBrowserRedirectExternalOnOpen",
-                                    @"message": @"ThemeableBrowser redirected to open an external app on fresh start"
-                                    };
-            
-            [self emitEvent:event];
-        }
-        
-        // do not load content in the web view since this URL is handled by an
-        // external app
+    // The browser is for finding recipes: links that would leave it (App Store pages, and any scheme that is
+    // not a web page, such as mailto:, tel:, sms: or another app's) do nothing, and nothing opens outside the app
+    if ([self isIgnoredLink:url]) {
         shouldStart = NO;
     } else if ((self.callbackId != nil) && isTopLevelNavigation) {
         self.themeableBrowserViewController.currentURL = request.URL;
